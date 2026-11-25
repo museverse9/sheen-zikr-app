@@ -1,0 +1,70 @@
+name: Build SHEEN Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract SHEEN Android source archive
+        run: |
+          if [ -f "sheen-android.tar.gz" ]; then
+            echo "Extracting sheen-android.tar.gz..."
+            tar -xzf sheen-android.tar.gz
+          elif [ ! -d "sheen-android" ]; then
+            echo "Error: Neither sheen-android.tar.gz nor sheen-android/ directory found in repository root."
+            exit 1
+          fi
+          ls -la sheen-android
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35 components
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Run Unit Tests
+        working-directory: sheen-android
+        run: gradle testDebugUnitTest --stacktrace
+
+      - name: Build SHEEN Release APK
+        working-directory: sheen-android
+        run: gradle assembleRelease --stacktrace
+
+      - name: Verify APK exists
+        working-directory: sheen-android
+        run: |
+          APK_PATH="app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$APK_PATH" ]; then
+            echo "Build failed: $APK_PATH not found!"
+            exit 1
+          fi
+          ls -lh "$APK_PATH"
+          cp "$APK_PATH" "../SHEEN-v1.0.0.apk"
+
+      - name: Upload SHEEN APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SHEEN-v1.0.0-APK
+          path: SHEEN-v1.0.0.apk
+          if-no-files-found: error
