@@ -1,4 +1,4 @@
-name: Build SHEEN Android APK
+name: Build Sheen Android Release (AAB & APK)
 
 on:
   workflow_dispatch:
@@ -6,14 +6,14 @@ on:
     branches: [ main, master ]
 
 jobs:
-  build-apk:
+  build-release:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract SHEEN Android source archive
+      - name: Extract Sheen Android source archive
         run: |
           if [ -f "sheen-android.tar.gz" ]; then
             echo "Extracting sheen-android.tar.gz..."
@@ -23,6 +23,26 @@ jobs:
             exit 1
           fi
           ls -la sheen-android
+
+      - name: Configure Release Signing Keystore
+        working-directory: sheen-android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "Error: KEYSTORE_BASE64 secret is missing!"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | tr -d '\n\r ' | base64 --decode > sheen-upload-key.jks
+          cat <<EOF > keystore.properties
+          storeFile=sheen-upload-key.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -45,24 +65,33 @@ jobs:
         working-directory: sheen-android
         run: gradle testDebugUnitTest --stacktrace
 
-      - name: Build SHEEN Release APK
+      - name: Build Sheen Release AAB (Play Store) & APK
         working-directory: sheen-android
-        run: gradle assembleRelease --stacktrace
+        run: gradle bundleRelease assembleRelease --stacktrace
 
-      - name: Verify APK exists
+      - name: Verify AAB and APK exist
         working-directory: sheen-android
         run: |
+          AAB_PATH="app/build/outputs/bundle/release/app-release.aab"
           APK_PATH="app/build/outputs/apk/release/app-release.apk"
-          if [ ! -f "$APK_PATH" ]; then
-            echo "Build failed: $APK_PATH not found!"
+          if [ ! -f "$AAB_PATH" ] || [ ! -f "$APK_PATH" ]; then
+            echo "Build failed: Missing AAB or APK!"
             exit 1
           fi
-          ls -lh "$APK_PATH"
-          cp "$APK_PATH" "../SHEEN-v1.0.0.apk"
+          ls -lh "$AAB_PATH" "$APK_PATH"
+          cp "$AAB_PATH" "../Sheen-v1.0.0.aab"
+          cp "$APK_PATH" "../Sheen-v1.0.0.apk"
 
-      - name: Upload SHEEN APK Artifact
+      - name: Upload Sheen Play Store AAB
         uses: actions/upload-artifact@v4
         with:
-          name: SHEEN-v1.0.0-APK
-          path: SHEEN-v1.0.0.apk
+          name: Sheen-v1.0.0-PlayStore-AAB
+          path: Sheen-v1.0.0.aab
+          if-no-files-found: error
+
+      - name: Upload Sheen Installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sheen-v1.0.0-APK
+          path: Sheen-v1.0.0.apk
           if-no-files-found: error
